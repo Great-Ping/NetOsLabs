@@ -6,4 +6,4 @@ COPY ./src /netos-lab/src
 WORKDIR /netos-lab/src
 
 RUN gcc -g -o app.exe main.c
-# CMD ["./app.exe"]
+CMD ["./app.exe"]

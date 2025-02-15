@@ -1,19 +1,23 @@
 #include "main.h"
 
 void runAnimalLifeCycle(Animal* animal, Field* field);
-
-Animal** createAnimals(Field* field, int a, int b, int c);
+Animal** createAnimals(Field* field, Limits* limits, int a, int b, int c);
 
 
 int main(int argc, char const *argv[])
 { 
-    const int aCount = 50;
-    const int bCount = 50;
-    const int cCount = 180;
+    const int aCount = 90;
+    const int bCount = 90;
+    const int cCount = 90;
     const int sum = aCount + bCount + cCount;
 
-    Field* field = newField(15, 15);
-    Animal** animals = createAnimals(field, aCount, bCount, cCount);
+    Limits* limits = malloc(sizeof(Limits));
+    limits->maxAge = 20;
+    limits->maxHungerStrike = 10;
+    limits->stepTimeSpan = 500000;
+
+    Field* field = newField(40, 20);
+    Animal** animals = createAnimals(field, limits, aCount, bCount, cCount);
     printField(field);
 
     for(int i = 0; i < sum; i++)
@@ -46,15 +50,11 @@ Field* newField(int width, int height)
     return field;
 }
 
-Animal** createAnimals(Field* field, int a, int b, int c)
+Animal** createAnimals(Field* field, Limits* limits, int a, int b, int c)
 {
     int sum = a+b+c;
     Animal** animals = calloc(sum, sizeof(Animal*));
-    Limits* limits = malloc(sizeof(Limits));
 
-    limits->maxAge = 20;
-    limits->maxHungerStrike = 10;
-    limits->stepTimeSpan = 1000000;
     for (int i = 0; i < sum; i++)
     {
         animals[i] = newAnimal(
@@ -93,14 +93,14 @@ void runAnimalLifeCycle(Animal* animal, Field* field)
 void updateCycle(Animal* animal, Field* field)
 {
     animal->age++;
-    if ((animal->age - animal->lastEatTime) > animal->limits->maxHungerStrike)
+    if ((animal->age - animal->lastEatTime) >= animal->limits->maxHungerStrike)
     {
         animal->isDead = TRUE;
         (*field->stats.dead)++;
         return;
     }
 
-    if (animal->age > animal->limits->maxAge)
+    if (animal->age >= animal->limits->maxAge)
     {
         animal->isDead = TRUE;
         (*field->stats.dead)++;
@@ -137,6 +137,7 @@ void* animalLifeCycle(void *args)
     } 
 
     processEvents(animal, field);
+    usleep(animal->limits->stepTimeSpan*2);
     free(animal);
 
     return NULL;
@@ -154,8 +155,9 @@ Animal *newAnimal(Genus type, Limits *limits)
     animal->type = type;
     animal->limits = limits;
     animal->currentCell = cell;
-
+    animal->events = NULL;
     pthread_mutex_init(&animal->mutexId, NULL);    
+
     return animal;
 }
 
@@ -292,16 +294,15 @@ Bool setToNearestFreePosition(Animal *animal, Field *field, Position startPositi
 void acceptEvent(Animal* animal, EventNode* eventNode, Field* field)
 {
     if (eventNode == NULL)
-    {
         return;
-    }
 
-    acceptEvent(animal, eventNode->next, field);
+    EventNode* temp = eventNode->next;
     eventNode->next = NULL;
-    free(eventNode);
+    acceptEvent(animal, temp, field);
 
     if (animal->isDead)
     {
+        free(eventNode);
         return;
     }
     
@@ -348,6 +349,7 @@ void sendEvent(Animal *recipient, Event event)
 
     EventNode* eventNode = malloc(sizeof(EventNode));
     eventNode->event = event;
+
     eventNode->next = recipient->events;
     recipient->events = eventNode;
 
@@ -392,6 +394,9 @@ Position selectNextPosition(Position position, FieldSize fieldSize)
 void doAction(Animal* animal, Animal* cellOwner, Field* field)
 {
     EventType eventType;
+    if (cellOwner == animal)
+        return;
+    
     if (cellOwner->type == animal->type)
     {
         multiply(animal, cellOwner, field);
@@ -427,8 +432,6 @@ void move(Animal *animal, Field *field, Position newPosition)
     animal->currentCell = newCell;
 
     usleep(animal->limits->stepTimeSpan);
-    processEvents(animal, field);
-
     (*oldCell.ptr) = NULL;
 }
 
