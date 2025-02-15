@@ -1,23 +1,25 @@
 #include "main.h"
 
 void runAnimalLifeCycle(Animal* animal, Field* field);
-Animal** createAnimals(Field* field, Limits* limits, int a, int b, int c);
+Animal** createAnimals(Field* field, int a, int b, int c);
 
 
 int main(int argc, char const *argv[])
 { 
-    const int aCount = 90;
-    const int bCount = 90;
-    const int cCount = 90;
+    const int aCount = 10;
+    const int bCount = 0;
+    const int cCount = 5;
     const int sum = aCount + bCount + cCount;
 
-    Limits* limits = malloc(sizeof(Limits));
-    limits->maxAge = 20;
-    limits->maxHungerStrike = 10;
-    limits->stepTimeSpan = 500000;
+    setbuf(stdout, 0);
 
-    Field* field = newField(40, 20);
-    Animal** animals = createAnimals(field, limits, aCount, bCount, cCount);
+    // Limits* limits = malloc(sizeof(Limits));
+    // limits->maxAge = 30;
+    // limits->maxHungerStrike = 10;
+    // limits->stepTimeSpan = 5000000;
+
+    Field* field = newField(20, 10);
+    Animal** animals = createAnimals(field, aCount, bCount, cCount);
     printField(field);
 
     for(int i = 0; i < sum; i++)
@@ -50,13 +52,18 @@ Field* newField(int width, int height)
     return field;
 }
 
-Animal** createAnimals(Field* field, Limits* limits, int a, int b, int c)
+Animal** createAnimals(Field* field, int a, int b, int c)
 {
     int sum = a+b+c;
     Animal** animals = calloc(sum, sizeof(Animal*));
 
     for (int i = 0; i < sum; i++)
     {
+        Limits* limits = malloc(sizeof(Limits));
+        limits->maxAge = 30;
+        limits->maxHungerStrike = 10;
+        limits->stepTimeSpan = 2000000 + rand()%3000000;
+
         animals[i] = newAnimal(
             AType,
             limits
@@ -83,6 +90,7 @@ void runAnimalLifeCycle(Animal* animal, Field* field)
     }
     (*field->stats.newbornAnimals)++;
 
+    animal->limits->stepTimeSpan -= rand()%2000000;
     InitialArgs* args = malloc(sizeof(InitialArgs));
     args->animal = animal;
     args->field = field;
@@ -430,8 +438,8 @@ void move(Animal *animal, Field *field, Position newPosition)
 
     Cell oldCell = animal->currentCell;
     animal->currentCell = newCell;
-
     usleep(animal->limits->stepTimeSpan);
+
     (*oldCell.ptr) = NULL;
 }
 
