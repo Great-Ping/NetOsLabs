@@ -36,33 +36,13 @@ typedef struct {
 
 struct Animal;
 
-// ИДЕЯ, уведомлять животное о том что мы признали что нас съел он
-typedef enum {
-    // Смерть
-    YouAreDead,
-    // Отправляется животным которое пытается войти в нашу клетку
-    // Но не может нас съесть 
-    // Или размножится с нами
-    // По факту жертва 
-    KnockToCell,
-    // Предложение размножения
-    Ywf,
-} EventType;
-
-typedef struct {
-    EventType eventType;
-    struct Animal* sender;
-} Event;
-
-typedef struct EventNode {
-    Event event; 
-    struct EventNode* next;
-} EventNode;
-
 typedef struct Cell {
-    struct Animal** ptr; 
+    struct Animal** ptr;
+    // struct int* animalDescriptor; 
     Position position;
 } Cell;
+
+void cellUnwrapAnimal(Cell cell);
 
 typedef struct Animal{
     //Возраст, на котором животное в последний раз поело
@@ -70,17 +50,14 @@ typedef struct Animal{
     unsigned int age;
     Bool isDead;
     Genus type;
-    Limits* limits;
+    Limits limits;
     Cell currentCell;
-    EventNode* events;
     pthread_t threadId;
     pthread_mutex_t mutexId;
 } Animal;
 
-void sendEvent(Animal* recipient, Event event);
-Animal* newAnimal(Genus type, Limits* limits);
+Animal* newAnimal(Genus type, Limits limits);
 void printAnimal(Animal* animal);
-void* animalLifeCycle(void* animal);
 
 typedef struct {
     int width;
@@ -89,13 +66,13 @@ typedef struct {
 
 typedef struct{
     //Отброшенно из за переполнения
-    int* discardedAnimals;
+    int discardedAnimals;
     //Родилось
-    int* newbornAnimals;
+    int newbornAnimals;
     //Съедено
-    int* eatenAnimals;
+    int eatenAnimals;
     //Умерло по естественным причинам
-    int* dead;
+    int dead;
 } Statistics;
 
 //Представление поля
@@ -111,18 +88,23 @@ Cell getCell(Field* field, Position position);
 void printField(Field* field);
 
 Bool setToRandomFreePosition(Animal* animal, Field* field);
-//По спирали ищет ближайшее свободное место
+//Ищет ближайшее свободное место, отностиельно точки
 Bool setToNearestFreePosition(Animal *animal, Field *field, Position startPosition);
+
+void runAnimalLifeCycle(Animal* animal, Field* field);
+void* animalLifeCycle(void* animal);
+Animal** createAnimals(Field* field, int a, int b, int c);
 
 //Методы жизненного цикла
 Position selectNextPosition(Position position, FieldSize fieldSize);
-//Не совсем MOVE, скорее какое то действие совершаемое для достижения позиции
-void move(Animal* animal, Field* field, Position newPosition);
-Bool giveBirth(Animal* animal, Field* field);
-void processEvents(Animal *animal, Field *field);
-//ЭТИ ФУНКЦИИ ПРОСТО ОТПРАВЛЯЮТ ИВЕНТЫ
+void doAction(Animal* animal, Field* field, Cell newCell);
+
+//Больше нет ивентов  :(
+void move(Animal* animal, Field* field, Cell cell);
 void multiply(Animal* parent1, Animal* parnet2, Field* field);
 void eatIt(Animal* predator, Animal* prey, Field* field);
+Bool giveBirth(Animal* animal, Field* field);
+
 typedef struct {
     Animal* animal;
     Field* field;

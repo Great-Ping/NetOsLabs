@@ -1,9 +1,5 @@
 #include "main.h"
 
-void runAnimalLifeCycle(Animal* animal, Field* field);
-Animal** createAnimals(Field* field, int a, int b, int c);
-
-
 int main(int argc, char const *argv[])
 { 
     const int aCount = 10;
@@ -12,12 +8,7 @@ int main(int argc, char const *argv[])
     const int sum = aCount + bCount + cCount;
 
     setbuf(stdout, 0);
-
-    // Limits* limits = malloc(sizeof(Limits));
-    // limits->maxAge = 30;
-    // limits->maxHungerStrike = 10;
-    // limits->stepTimeSpan = 5000000;
-
+    
     Field* field = newField(20, 10);
     Animal** animals = createAnimals(field, aCount, bCount, cCount);
     printField(field);
@@ -27,11 +18,12 @@ int main(int argc, char const *argv[])
         runAnimalLifeCycle(animals[i], field);
     }
     free(animals);
-
+    
     while (TRUE)
     {
         system("clear");
         printField(field);
+        usleep(50000);
     }
 
     return 0;
@@ -42,10 +34,10 @@ Field* newField(int width, int height)
     Field* field = malloc(sizeof(Field));
     field->pointers = calloc(width * height, sizeof(Animal*));
     
-    field->stats.dead = malloc(sizeof(int));
-    field->stats.discardedAnimals = malloc(sizeof(int));
-    field->stats.eatenAnimals = malloc(sizeof(int));
-    field->stats.newbornAnimals = malloc(sizeof(int));
+    field->stats.dead = 0;
+    field->stats.discardedAnimals = 0;
+    field->stats.eatenAnimals = 0;
+    field->stats.newbornAnimals = 0;
 
     FieldSize size = {width, height};
     field->size = size;
@@ -57,13 +49,14 @@ Animal** createAnimals(Field* field, int a, int b, int c)
     int sum = a+b+c;
     Animal** animals = calloc(sum, sizeof(Animal*));
 
+    Limits limits = {
+        .maxAge = 30,
+        .maxHungerStrike = 10,
+        .stepTimeSpan = 2000000 + rand() % 3000000
+    };
+
     for (int i = 0; i < sum; i++)
     {
-        Limits* limits = malloc(sizeof(Limits));
-        limits->maxAge = 30;
-        limits->maxHungerStrike = 10;
-        limits->stepTimeSpan = 2000000 + rand()%3000000;
-
         animals[i] = newAnimal(
             AType,
             limits
@@ -84,34 +77,36 @@ void runAnimalLifeCycle(Animal* animal, Field* field)
 {
     //а вдруг, вдруг мы попытались родиться вне поля
     if (animal->currentCell.ptr == NULL){
-        (*field->stats.discardedAnimals)++;
+        field->stats.discardedAnimals++;
         free(animal);
         return;
     }
-    (*field->stats.newbornAnimals)++;
 
-    animal->limits->stepTimeSpan -= rand()%2000000;
+    field->stats.newbornAnimals++;
+
+    // animal->limits.stepTimeSpan -= rand()%2000000;
+
     InitialArgs* args = malloc(sizeof(InitialArgs));
     args->animal = animal;
     args->field = field;
-    
+
     pthread_create(&animal->threadId, NULL, &animalLifeCycle, args);
 }
 
 void updateCycle(Animal* animal, Field* field)
 {
     animal->age++;
-    if ((animal->age - animal->lastEatTime) >= animal->limits->maxHungerStrike)
+    if ((animal->age - animal->lastEatTime) >= animal->limits.maxHungerStrike)
     {
         animal->isDead = TRUE;
-        (*field->stats.dead)++;
+        field->stats.dead++;
         return;
     }
 
-    if (animal->age >= animal->limits->maxAge)
+    if (animal->age >= animal->limits.maxAge)
     {
         animal->isDead = TRUE;
-        (*field->stats.dead)++;
+        field->stats.dead++;
         return;
     }
 
@@ -123,20 +118,17 @@ void* animalLifeCycle(void *args)
     Field* field = ((InitialArgs*)args)->field;
     free(args);
 
-    while (TRUE){
-        processEvents(animal, field);
-        updateCycle(animal, field);
-        usleep(animal->limits->stepTimeSpan);
-        processEvents(animal, field);
-        
-        if (animal->isDead)
-            break;
-
+    while (!animal->isDead){
         Position nextPosition = selectNextPosition(
             animal->currentCell.position, 
             field->size
         );
-        move(animal, field, nextPosition);
+
+        Cell cell = getCell(field, nextPosition);
+        doAction(animal, field, cell);
+
+        usleep(animal->limits.stepTimeSpan);
+        updateCycle(animal, field);
     }
 
     Cell cell = animal->currentCell;
@@ -144,16 +136,83 @@ void* animalLifeCycle(void *args)
         (*cell.ptr) = NULL;
     } 
 
-    processEvents(animal, field);
-    usleep(animal->limits->stepTimeSpan*2);
     free(animal);
-
     return NULL;
 }
 
 
+void doAction(Animal *animal, Field *field, Cell newCell)
+{
+    Animal* cellOwner = (*newCell.ptr);
+    if (cellOwner == NULL)
+    {
+        move(animal, field, newCell);
+    }
+    else if ((*newCell.ptr) == animal)
+    {
+        usleep(animal->limits.stepTimeSpan);
+    }
+    else if (cellOwner->type == animal->type)
+    {
+        multiply(animal, cellOwner, field);
+    }
+    else if (cellOwner->type == ((animal->type - 1 + 4) % 4))
+    {
+        eatIt(animal, cellOwner, field);
+    }
+    else
+    {
+        eatIt(cellOwner, animal, field);
+    }
+}
 
-Animal *newAnimal(Genus type, Limits *limits)
+
+void eatIt(Animal *predator, Animal *prey, Field* field)
+{   
+    field->stats.eatenAnimals++;
+    predator->lastEatTime = predator->age;
+
+    pthread_mutex_lock(&prey->mutexId);
+    prey->isDead = TRUE;
+    pthread_mutex_unlock(&prey->mutexId);
+}
+
+void move(Animal *animal, Field *field, Cell cell)
+{
+    (*cell.ptr) = animal;
+
+    Cell oldCell = animal->currentCell;
+    animal->currentCell = cell;
+    usleep(animal->limits.stepTimeSpan);
+
+    (*oldCell.ptr) = NULL;
+}
+
+void multiply(Animal *mainParent, Animal *parnet2, Field *field)
+{
+    pthread_mutex_lock(&parnet2->mutexId);
+    Bool canMultiply = !parnet2->isDead;
+    pthread_mutex_unlock(&parnet2->mutexId);
+
+    pthread_mutex_lock(&mainParent->mutexId);
+    canMultiply &= !mainParent->isDead;
+    pthread_mutex_unlock(&mainParent->mutexId);
+
+
+    if (canMultiply)
+        giveBirth(mainParent, field);
+}
+
+
+Bool giveBirth(Animal *animal, Field *field)
+{
+    Animal* child = newAnimal(animal->type, animal->limits);
+    Bool hasCell = setToRandomFreePosition(child, field);
+    runAnimalLifeCycle(child, field);
+    return hasCell;
+}
+
+Animal *newAnimal(Genus type, Limits limits)
 {
     Cell cell = {NULL, -1, -1};
     Animal* animal = malloc(sizeof(Animal));
@@ -163,7 +222,6 @@ Animal *newAnimal(Genus type, Limits *limits)
     animal->type = type;
     animal->limits = limits;
     animal->currentCell = cell;
-    animal->events = NULL;
     pthread_mutex_init(&animal->mutexId, NULL);    
 
     return animal;
@@ -181,21 +239,6 @@ void printAnimal(Animal *animal)
     );
 }
 
-void eatIt(Animal *predator, Animal *prey, Field* field)
-{   
-    (*field->stats.eatenAnimals)++;
-    predator->lastEatTime = predator->age;
-
-    Event event = {YouAreDead, predator};
-    sendEvent(prey, event);
-}
-
-void multiply(Animal *mainParent, Animal *parnet2, Field* field)
-{
-    Event event = {Ywf, mainParent};
-    sendEvent(parnet2, event);
-}
-
 Cell getCell(Field* field, Position position)
 {
     Cell cell = {NULL, -1, -1};
@@ -205,16 +248,17 @@ Cell getCell(Field* field, Position position)
     int realPosition = position.x * field->size.height + position.y;
     cell.ptr = field->pointers + realPosition;
     cell.position = position;
+    
     return cell;
 }
 
 void printField(Field *field)
 {
     printf("discarded: %i newborn: %i eaten: %i, dead: %i\n", 
-        *field->stats.discardedAnimals, 
-        *field->stats.newbornAnimals, 
-        *field->stats.eatenAnimals,
-        *field->stats.dead
+        field->stats.discardedAnimals, 
+        field->stats.newbornAnimals, 
+        field->stats.eatenAnimals,
+        field->stats.dead
     );
     for (int j = 0; j < field->size.height; j++)
     {
@@ -298,73 +342,6 @@ Bool setToNearestFreePosition(Animal *animal, Field *field, Position startPositi
     return FALSE;
 }
 
-
-void acceptEvent(Animal* animal, EventNode* eventNode, Field* field)
-{
-    if (eventNode == NULL)
-        return;
-
-    EventNode* temp = eventNode->next;
-    eventNode->next = NULL;
-    acceptEvent(animal, temp, field);
-
-    if (animal->isDead)
-    {
-        free(eventNode);
-        return;
-    }
-    
-    Event event = eventNode->event;
-    switch (event.eventType)
-    {
-        case YouAreDead:
-            /* code */
-            animal->isDead = TRUE;
-            break;
-        
-        case KnockToCell:
-            eatIt(animal, event.sender, field);
-            break;
-            
-        case Ywf:
-            giveBirth(animal, field);
-            break;
-        default:
-            break;
-    }
-    free(eventNode);
-}
-void processEvents(Animal *animal, Field *field){
-    pthread_mutex_lock(&animal->mutexId);
-    EventNode* events = animal->events; 
-    animal->events = NULL;
-    pthread_mutex_unlock(&animal->mutexId);
-
-    acceptEvent(animal, events, field);
-}
-
-void sendEvent(Animal *recipient, Event event)
-{
-    if (recipient->isDead)
-        return;
-
-    pthread_mutex_lock(&recipient->mutexId);
-    if (recipient->isDead)
-    {
-        pthread_mutex_unlock(&recipient->mutexId);
-        return;
-    }
-
-    EventNode* eventNode = malloc(sizeof(EventNode));
-    eventNode->event = event;
-
-    eventNode->next = recipient->events;
-    recipient->events = eventNode;
-
-    pthread_mutex_unlock(&recipient->mutexId);
-
-}
-
 Position selectNextPosition(Position position, FieldSize fieldSize)
 {
     const int offsetsCount = 6;
@@ -397,56 +374,4 @@ Position selectNextPosition(Position position, FieldSize fieldSize)
     }
 
     return offsets[0];
-}
-
-void doAction(Animal* animal, Animal* cellOwner, Field* field)
-{
-    EventType eventType;
-    if (cellOwner == animal)
-        return;
-    
-    if (cellOwner->type == animal->type)
-    {
-        multiply(animal, cellOwner, field);
-    }
-    else if (cellOwner->type == ((animal->type - 1 + 4) % 4))
-    {
-        eatIt(animal, cellOwner, field);
-    }
-    else
-    {
-        Event event = {
-            KnockToCell,
-            animal
-        };
-        sendEvent(cellOwner, event);
-    }
-}
-
-void move(Animal *animal, Field *field, Position newPosition)
-{
-    Cell newCell = getCell(field, newPosition);
-    Animal* cellOwner = (*newCell.ptr);
- 
-    if (cellOwner != NULL)
-    {
-        doAction(animal, cellOwner, field);
-        return;
-    }
-
-    (*newCell.ptr) = animal;
-
-    Cell oldCell = animal->currentCell;
-    animal->currentCell = newCell;
-    usleep(animal->limits->stepTimeSpan);
-
-    (*oldCell.ptr) = NULL;
-}
-
-Bool giveBirth(Animal *animal, Field *field)
-{
-    Animal* child = newAnimal(animal->type, animal->limits);
-    Bool hasCell = setToRandomFreePosition(child, field);
-    runAnimalLifeCycle(child, field);
-    return hasCell;
 }
