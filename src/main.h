@@ -5,6 +5,11 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <semaphore.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+
 struct Cell;
 
 typedef enum {
@@ -34,29 +39,19 @@ typedef struct {
     unsigned int stepTimeSpan;
 } Limits;
 
-struct Animal;
-
-typedef struct Cell {
-    struct Animal** ptr;
-    // struct int* animalDescriptor; 
-    Position position;
-} Cell;
-
-void cellUnwrapAnimal(Cell cell);
-
 typedef struct Animal{
     //Возраст, на котором животное в последний раз поело
     unsigned int lastEatTime;
     unsigned int age;
-    Bool isDead;
+    int itemIndex;
+    Bool isAlive;
     Genus type;
     Limits limits;
-    Cell currentCell;
+    Position currentPosition;
     pthread_t threadId;
     pthread_mutex_t mutexId;
 } Animal;
 
-Animal* newAnimal(Genus type, Limits limits);
 void printAnimal(Animal* animal);
 
 typedef struct {
@@ -77,35 +72,48 @@ typedef struct{
 
 //Представление поля
 typedef struct {
-    Animal** pointers;
-    Statistics stats;
+    int* indexes;
+    Animal* animals;
+    int fd;
     FieldSize size;
+    // Statistics stats;
     // pthread_mutex_t transition_mutex;
 } Field;
 
-Field* newField(int width, int height);
-Cell getCell(Field* field, Position position);
-void printField(Field* field);
 
-Bool setToRandomFreePosition(Animal* animal, Field* field);
+typedef struct Cell {
+    int* index;
+    // struct int* animalDescriptor; 
+    Position position;
+} Cell;
+
+Animal* unwrapAnimal(Field field, Cell cell);
+Animal* mallocAnimal(Field field, Genus type, Limits limits);
+
+Field readField(int fd, int width, int height);
+Field createField(int width, int height);
+Cell getCell(Field field, Position position);
+void printField(Field field);
+
+Bool setToRandomFreePosition(Animal* animal, Field field);
 //Ищет ближайшее свободное место, отностиельно точки
-Bool setToNearestFreePosition(Animal *animal, Field *field, Position startPosition);
+Bool setToNearestFreePosition(Animal *animal, Field field, Position startPosition);
 
-void runAnimalLifeCycle(Animal* animal, Field* field);
+void runAnimalLifeCycle(Animal* animal, Field field);
 void* animalLifeCycle(void* animal);
-Animal** createAnimals(Field* field, int a, int b, int c);
+Animal** createAnimals(Field field, int a, int b, int c);
 
 //Методы жизненного цикла
 Position selectNextPosition(Position position, FieldSize fieldSize);
-void doAction(Animal* animal, Field* field, Cell newCell);
+void doAction(Animal* animal, Field field, Cell newCell);
 
 //Больше нет ивентов  :(
-void move(Animal* animal, Field* field, Cell cell);
-void multiply(Animal* parent1, Animal* parnet2, Field* field);
-void eatIt(Animal* predator, Animal* prey, Field* field);
-Bool giveBirth(Animal* animal, Field* field);
+void move(Animal* animal, Field field, Cell cell);
+void multiply(Animal* parent1, Animal* parnet2, Field field);
+void eatIt(Animal* predator, Animal* prey, Field field);
+Bool giveBirth(Animal* animal, Field field);
 
 typedef struct {
     Animal* animal;
-    Field* field;
+    Field field;
 } InitialArgs;
