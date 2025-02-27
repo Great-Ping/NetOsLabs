@@ -6,7 +6,7 @@
 
 int main(int argc, char const *argv[])
 { 
-    const int aCount = 4;
+    const int aCount = 50;
     const int bCount = 0;
     const int cCount = 2;
     const int sum = aCount + bCount + cCount;
@@ -414,16 +414,11 @@ Animal* tryReviveAnimal(Field field){
         if (selected->isAlive)
             continue;
 
-        pthread_mutex_lock(&selected->mutexId);
-        if (selected->isAlive)
-        {
-            pthread_mutex_unlock(&selected->mutexId);           
-            continue;
-        }
         selected->isAlive = TRUE;
-        pthread_mutex_unlock(&selected->mutexId);           
         return selected;
     }
+
+    return NULL;
 }
 
 Animal *unwrapAnimal(Field field, Cell cell)
