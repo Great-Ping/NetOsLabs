@@ -6,21 +6,30 @@
 
 int main(int argc, char const *argv[])
 { 
-    const int aCount = 50;
-    const int bCount = 0;
-    const int cCount = 2;
+    const int aCount = 5;
+    const int bCount = 4;
+    const int cCount = 3;
     const int sum = aCount + bCount + cCount;
 
     setbuf(stdout, 0);
     
-    Field field = createField(20, 10);
+    FieldSize size = {.width = 20, .height = 10};
+    Field field = createField(size);
     Animal** animals = createAnimals(field, aCount, bCount, cCount);
-    printField(field);
-
+    
+    int lastId = 0;
     for(int i = 0; i < sum; i++)
     {
-        runAnimalLifeCycle(animals[i], field);
+        int itemIndex = animals[i] -> itemIndex;
+        int id = fork();
+        if (id != 0)
+        {
+            runAnimalLifeCycle(itemIndex, size);
+            return 0;
+        }
+        lastId = id;
     }
+
     free(animals);
     
     while (TRUE)
@@ -33,14 +42,9 @@ int main(int argc, char const *argv[])
     return 0;
 }
 
-Field readField(int fd, int width, int height)
+Field readField(int fd, FieldSize size)
 {
-    int cells = width * height;
-
-    FieldSize size = {
-        .width = width,
-        .height = height
-    };
+    int cells = size.width * size.height;
 
     int total_size = (sizeof(int) + sizeof(Animal)) * cells; 
     void* shared_memory = mmap(NULL, total_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
@@ -58,28 +62,19 @@ Field readField(int fd, int width, int height)
     return field;
 }
 
-Field createField(int width, int height)
+Field createField(FieldSize size)
 {
     shm_unlink(FIELD_SHARED_MEMORY_NAME);
-    // int fdIndexes = shm_open(FIELD_SHARED_MEMORY_INDEXES, O_RDWR | O_CREAT | O_EXCL, FILE_MODE);
-    // int fdAnimals = shm_open(FIELD_SHARED_MEMORY_ANIMALS, O_RDWR | O_CREAT | O_EXCL, FILE_MODE);
-
     int fd = shm_open(FIELD_SHARED_MEMORY_NAME, O_RDWR | O_CREAT | O_EXCL, FILE_MODE);
 
-    Field field = readField(fd, width, height);
-    int cells = width * height;
+    Field field = readField(fd, size);
+    int cells = size.width * size.height;
+    
     ftruncate(fd, (sizeof(int) + sizeof(Animal)) * cells);
-
-    // ftruncate(fdAnimals, sizeof(Animal) * cells);
-
-    // close(fdIndexes);
-    // close(fdAnimals);
-
-    printf("%u\n", field.animals);
+    close(fd);
 
     for (int i = 0; i < cells; i++)
     {
-        printf("%i\n", i);
         field.indexes[i] = -1;
         field.animals[i].isAlive = FALSE;
         field.animals[i].itemIndex = i;
@@ -122,13 +117,14 @@ Animal** createAnimals(Field field, int a, int b, int c)
     return animals;
 }
 
-void runAnimalLifeCycle(Animal* animal, Field field)
+void runAnimalLifeCycle(int animalIndex, FieldSize size)
 {
-    InitialArgs* args = malloc(sizeof(InitialArgs));
-    args->animal = animal;
-    args->field = field;
+    int fd = shm_open(FIELD_SHARED_MEMORY_NAME, O_RDWR, FILE_MODE);
+    Field field = readField(fd, size);
+    close(fd);
 
-    pthread_create(&animal->threadId, NULL, &animalLifeCycle, args);
+    Animal* animal = field.animals + animalIndex;
+    animalLifeCycle(animal, field);
 }
 
 void updateCycle(Animal* animal, Field field)
@@ -137,25 +133,19 @@ void updateCycle(Animal* animal, Field field)
     if ((animal->age - animal->lastEatTime) >= animal->limits.maxHungerStrike)
     {
         animal->isAlive = FALSE;
-        // field.stats.dead++;
         return;
     }
 
     if (animal->age >= animal->limits.maxAge)
     {
         animal->isAlive = FALSE;
-        // field.stats.dead++;
         return;
     }
 
 }
 
-void* animalLifeCycle(void *args)
+void animalLifeCycle(Animal* animal, Field field)
 {
-    Animal* animal = ((InitialArgs*)args)->animal;
-    Field field = ((InitialArgs*)args)->field;
-    free(args);
-
     while (animal->isAlive){
         Position nextPosition = selectNextPosition(
             animal->currentPosition, 
@@ -163,7 +153,7 @@ void* animalLifeCycle(void *args)
         );
 
         Cell cell = getCell(field, nextPosition);
-        doAction(animal, field, cell);
+        doAction(&animal, &field, cell);
 
         usleep(animal->limits.stepTimeSpan);
         updateCycle(animal, field);
@@ -174,40 +164,37 @@ void* animalLifeCycle(void *args)
     {
         (*cell.index) = -1;
     } 
-
-    return NULL;
 }
 
 
-void doAction(Animal *animal, Field field, Cell newCell)
+void doAction(Animal** animal, Field* field, Cell newCell)
 {
-    Animal* cellOwner = unwrapAnimal(field, newCell);
+    Animal* cellOwner = unwrapAnimal(*field, newCell);
     if (cellOwner == NULL)
     {
-        move(animal, field, newCell);
+        move(*animal, *field, newCell);
     }
-    else if (cellOwner == animal)
+    else if (cellOwner == *animal)
     {
-        usleep(animal->limits.stepTimeSpan);
+        usleep((*animal)->limits.stepTimeSpan);
     }
-    else if (cellOwner->type == animal->type)
+    else if (cellOwner->type == (*animal)->type)
     {
         multiply(animal, cellOwner, field);
     }
-    else if (cellOwner->type == ((animal->type - 1 + 4) % 4))
+    else if (cellOwner->type == (((*animal)->type - 1 + 4) % 4))
     {
-        eatIt(animal, cellOwner, field);
+        eatIt(*animal, cellOwner, *field);
     }
     else
     {
-        eatIt(cellOwner, animal, field);
+        eatIt(cellOwner, *animal, *field);
     }
 }
 
 
 void eatIt(Animal *predator, Animal *prey, Field field)
 {   
-    // field.stats.eatenAnimals++;
     predator->lastEatTime = predator->age;
 
     pthread_mutex_lock(&prey->mutexId);
@@ -226,15 +213,15 @@ void move(Animal *animal, Field field, Cell cell)
     (*oldCell.index) = -1;
 }
 
-void multiply(Animal *mainParent, Animal *parnet2, Field field)
+void multiply(Animal** mainParent, Animal *parnet2, Field* field)
 {
     pthread_mutex_lock(&parnet2->mutexId);
     Bool canMultiply = parnet2->isAlive;
     pthread_mutex_unlock(&parnet2->mutexId);
 
-    pthread_mutex_lock(&mainParent->mutexId);
-    canMultiply &= mainParent->isAlive;
-    pthread_mutex_unlock(&mainParent->mutexId);
+    pthread_mutex_lock(&(*mainParent)->mutexId);
+    canMultiply &= (*mainParent)->isAlive;
+    pthread_mutex_unlock(&(*mainParent)->mutexId);
 
 
     if (canMultiply)
@@ -242,16 +229,30 @@ void multiply(Animal *mainParent, Animal *parnet2, Field field)
 }
 
 
-Bool giveBirth(Animal *animal, Field field)
+void fork_animal(Animal** parent, Field* field, Animal* child)
 {
-    Animal* child = mallocAnimal(field, animal->type, animal->limits);
+    int childIndex = child->itemIndex;
+    FieldSize size = field->size;
+    if (fork() == 0)
+        return;
+    
+    int fd = shm_open(FIELD_SHARED_MEMORY_NAME, O_RDWR, FILE_MODE);
+    (*field) = readField(fd, size);
+    close(fd);
+
+    (*parent) = field->animals + childIndex;
+};
+
+Bool giveBirth(Animal **animal, Field* field)
+{
+    Animal* child = mallocAnimal(*field, (*animal)->type, (*animal)->limits);
     if (child == NULL)
         return FALSE;
         
-    if (!setToRandomFreePosition(child, field))
+    if (!setToRandomFreePosition(child, *field))
         return FALSE;
 
-    runAnimalLifeCycle(child, field);
+    fork_animal(animal, field, child);
     return TRUE;
 }
 

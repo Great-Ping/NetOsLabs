@@ -90,8 +90,8 @@ typedef struct Cell {
 Animal* unwrapAnimal(Field field, Cell cell);
 Animal* mallocAnimal(Field field, Genus type, Limits limits);
 
-Field readField(int fd, int width, int height);
-Field createField(int width, int height);
+Field readField(int fd, FieldSize size);
+Field createField(FieldSize size);
 Cell getCell(Field field, Position position);
 void printField(Field field);
 
@@ -99,19 +99,19 @@ Bool setToRandomFreePosition(Animal* animal, Field field);
 //Ищет ближайшее свободное место, отностиельно точки
 Bool setToNearestFreePosition(Animal *animal, Field field, Position startPosition);
 
-void runAnimalLifeCycle(Animal* animal, Field field);
-void* animalLifeCycle(void* animal);
+void runAnimalLifeCycle(int animalIndex, FieldSize size);
+void animalLifeCycle(Animal* animal, Field field);
 Animal** createAnimals(Field field, int a, int b, int c);
 
 //Методы жизненного цикла
 Position selectNextPosition(Position position, FieldSize fieldSize);
-void doAction(Animal* animal, Field field, Cell newCell);
+void doAction(Animal** animal, Field* field, Cell newCell);
 
 //Больше нет ивентов  :(
 void move(Animal* animal, Field field, Cell cell);
-void multiply(Animal* parent1, Animal* parnet2, Field field);
+void multiply(Animal** parent1, Animal* parnet2, Field* field);
 void eatIt(Animal* predator, Animal* prey, Field field);
-Bool giveBirth(Animal* animal, Field field);
+Bool giveBirth(Animal** animal, Field* field);
 
 typedef struct {
     Animal* animal;
